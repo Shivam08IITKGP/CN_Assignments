@@ -1,0 +1,6 @@
+his is a sample input file used to test the implementation of the KTP socket library.
+The file is transferred in fixed-size blocks of 512 bytes from user1 to user2 using KTP.
+Each block is processed independently by the sender. The receiver writes back the payload,
+stripping off the KTP header. This file is used to simulate a large file (typically >100 KB) by
+repeating this text as needed. For demonstration, only a few lines are shown.
+potenti. Nulla facilisi. Praesent nec nisi at mauris malesuada accumsan
