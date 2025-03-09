@@ -126,23 +126,6 @@ void *thread_R_function(void *arg)
             sem_wait(sem_SM);
             for (int i = 0; i < MAX_KTP_SOCKETS; i++)
             {
-                if (i == 0)
-                {
-                    // print every info of the segment
-                    printf("Thread R: shared_memory[%d].udp_socket = %d\n", i, shared_memory[i].udp_socket);
-                    printf("Thread R: shared_memory[%d].is_free = %d\n", i, shared_memory[i].is_free);
-                    printf("Thread R: shared_memory[%d].pid = %d\n", i, shared_memory[i].pid);
-                    printf("Thread R: shared_memory[%d].dest_ip = %s\n", i, shared_memory[i].dest_ip);
-                    printf("Thread R: shared_memory[%d].dest_port = %d\n", i, shared_memory[i].dest_port);
-                    printf("Thread R: shared_memory[%d].src_ip = %s\n", i, shared_memory[i].src_ip);
-                    printf("Thread R: shared_memory[%d].src_port = %d\n", i, shared_memory[i].src_port);
-                    printf("Thread R: shared_memory[%d].swnd.size = %d\n", i, shared_memory[i].swnd.size);
-                    printf("Thread R: shared_memory[%d].rwnd.size = %d\n", i, shared_memory[i].rwnd.size);
-                    printf("Thread R: shared_memory[%d].max_seq_number_yet = %d\n", i, shared_memory[i].max_seq_number_yet);
-                    printf("Thread R: shared_memory[%d].swnd.start_sequence = %d\n", i, shared_memory[i].swnd.start_sequence);
-                    printf("Thread R: shared_memory[%d].rwnd.start_sequence = %d\n\n", i, shared_memory[i].rwnd.start_sequence);
-                    printf("Thread R: shared_memory[%d].last_ack_received = %d\n", i, shared_memory[i].last_ack_received);
-                }
                 if (FD_ISSET(shared_memory[i].udp_socket, &read_fds))
                 {
                     char buffer[MESSAGE_SIZE];
@@ -260,7 +243,6 @@ void *thread_R_function(void *arg)
                             // Out-of-order packet but expected
                             else if (received_seq_num > shared_memory[i].rwnd.start_sequence || received_seq_num <= (shared_memory[i].rwnd.start_sequence + shared_memory[i].rwnd.size))
                             {
-
                                 printf("3. Received Seq Num = %d\n", received_seq_num);
                                 printf("3. Shared_memory[i].rwnd.start_sequence = %d\n", shared_memory[i].rwnd.start_sequence);
                                 printf("3. Shared_memory[i].rwnd.size = %d\n", shared_memory[i].rwnd.size);
@@ -271,14 +253,13 @@ void *thread_R_function(void *arg)
                                 shared_memory[i].send_time[index] = -1;
                                 shared_memory[i].rwnd.index_seq_num[received_seq_num] = -1;
                                 shared_memory[i].rwnd.valid_seq_num[received_seq_num] = 0;
-
                                 continue;
                             }
                         }
                         else
                         {
                             // Simulated packet loss
-                            printf("Thread R: Dropped message on socket %d\n", i);
+                            printf("Thread R: Dropped message on socket %d, seq_num %d\n", i, buffer[0]);
                         }
                     }
                 }
