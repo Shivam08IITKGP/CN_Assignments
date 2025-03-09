@@ -50,9 +50,6 @@ int initialize_shared_memory()
 // Send a message using the KTP socket
 int k_sendto(int sockfd, const void *message, size_t length)
 {
-    // printf("Inside k_sendto\n");
-    initialize_shared_memory();
-
     if (sockfd < 0 || sockfd >= MAX_KTP_SOCKETS)
     {
         printf("Invalid socket descriptor.\n");
@@ -146,8 +143,6 @@ int k_sendto(int sockfd, const void *message, size_t length)
 // Receive a message using the KTP socket
 int k_recvfrom(int sockfd, void *buffer, size_t length)
 {
-    initialize_shared_memory();
-
     if (sockfd < 0 || sockfd >= MAX_KTP_SOCKETS)
     {
         fprintf(stderr, "Invalid socket descriptor.\n");
@@ -241,8 +236,6 @@ int k_recvfrom(int sockfd, void *buffer, size_t length)
 // Creating a KTP Socket
 int k_socket(int domain, int type, int protocol)
 {
-    initialize_shared_memory();
-    
     sem_SM = sem_open("sem_SM", 0);
     if (sem_SM == SEM_FAILED)
     {
@@ -291,8 +284,6 @@ int k_socket(int domain, int type, int protocol)
 // Bind the KTP socket to an address and port
 int k_bind(int sockfd, const char *src_ip, uint16_t src_port, const char *dest_ip, uint16_t dest_port)
 {
-    initialize_shared_memory();
-
     sem1 = sem_open("sem1", 0);
     if (sem1 == SEM_FAILED)
     {

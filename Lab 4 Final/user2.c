@@ -4,6 +4,7 @@
 
 int main()
 {
+    initialize_shared_memory();
     int sockfd;
     FILE *file;
     char buffer[MESSAGE_SIZE];
