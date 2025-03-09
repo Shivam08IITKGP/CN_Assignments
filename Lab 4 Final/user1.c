@@ -57,7 +57,6 @@ int main()
     // Close the file
     fclose(file);
     sleep((unsigned int)(10000 * P));
-    sleep(100);
 
     // Close the socket
     if (k_close(sockfd) < 0)
@@ -65,6 +64,7 @@ int main()
         perror("Failed to close KTP socket");
         exit(EXIT_FAILURE);
     }
+    printf("Socket closed.\n");
 
     return 0;
 }

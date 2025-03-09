@@ -37,18 +37,18 @@
 typedef struct
 {
     signed char index_seq_num[256]; // Sequence numbers of unacknowledged messages
-    uint8_t size;                   // Current size of the sender window
+    int size;                   // Current size of the sender window
     bool valid_seq_num[256];
-    uint8_t start_sequence;
+    int start_sequence;
 } SenderWindow;
 
 // Receiver Window (rwnd) structure
 typedef struct
 {
     signed char index_seq_num[256]; // Sequence numbers of received but unacknowledged messages
-    uint8_t size;                   // Current size of the receiver window
+    int size;                   // Current size of the receiver window
     bool valid_seq_num[256];
-    uint8_t start_sequence;
+    int start_sequence;
 } ReceiverWindow;
 
 // Shared Memory (SM) entry for a single KTP socket
@@ -67,10 +67,13 @@ typedef struct
     bool rbuff_free[10];
     SenderWindow swnd;   // Sender window structure
     ReceiverWindow rwnd; // Receiver window structure
-    uint8_t max_seq_number_yet;
+    int max_seq_number_yet;
     long int send_time[10]; // Time at which the message was sent
+    int last_ack_received;
+    bool no_space_flags;
 } SharedMemoryEntry;
 
+// K socket table
 typedef struct
 {
     int udp_socket;
