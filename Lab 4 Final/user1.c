@@ -55,6 +55,7 @@ int main()
     // Close the file
     fclose(file);
     sleep((unsigned int)(10000 * P));
+    sleep(20);
 
     // Close the socket
     if (k_close(sockfd) < 0)

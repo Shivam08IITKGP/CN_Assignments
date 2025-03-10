@@ -142,12 +142,13 @@ void *thread_R_function(void *arg)
                             shared_memory[i].swnd.size = remote_window_size;
                             shared_memory[i].rwnd.size = remote_window_size;
                             int j = shared_memory[i].swnd.start_sequence;
-                            if (acked_seq_num == -1 || acked_seq_num == 255)
+                            if (acked_seq_num == -1)
                             {
                                 continue;
                             }
+
                             // I need to update the send times of the rest of the packets
-                            while (j != acked_seq_num + 1)
+                            while (j != (acked_seq_num) % 255 + 1)
                             {
                                 printf("Hehe %d\n", j);
                                 shared_memory[i].rwnd.valid_seq_num[j] = 0;
@@ -156,8 +157,7 @@ void *thread_R_function(void *arg)
                                 shared_memory[i].send_time[shared_memory[i].swnd.index_seq_num[j]] = -1;
                                 shared_memory[i].sbuff_free[shared_memory[i].swnd.index_seq_num[j]] = 1;
                                 shared_memory[i].swnd.index_seq_num[j] = -1;
-                                j++;
-                                j %= 256;
+                                j = 1 + j % 255;
                             }
 
                             shared_memory[i].swnd.start_sequence = j;
@@ -171,13 +171,55 @@ void *thread_R_function(void *arg)
                             uint8_t received_seq_num = buffer[0];
 
                             // Check for duplicate message (out of order and not expected)
-                            if (received_seq_num < shared_memory[i].rwnd.start_sequence || received_seq_num > shared_memory[i].rwnd.start_sequence + shared_memory[i].rwnd.size)
+
+                            int start = shared_memory[i].rwnd.start_sequence;
+                            if (received_seq_num == 1)
                             {
-                                printf("Thread R: Duplicate message on socket %d, seq_num %d\n", i, received_seq_num);
+                                printf("Thread R: Received Seq Num = %d\n", received_seq_num);
+                                printf("Thread R: Shared_memory[i].rwnd.start_sequence = %d\n", shared_memory[i].rwnd.start_sequence);
+                                printf("Thread R: Shared_memory[i].rwnd.size = %d\n", shared_memory[i].rwnd.size);
+                            }
+                            bool dup = false;
+                            for (int j = start; j != (start + shared_memory[i].rwnd.size) % 255 + 1; j = (j) % 255 + 1)
+                            {
+                                if (j == received_seq_num)
+                                {
+                                    dup = true;
+                                    break;
+                                }
+                            }
+                            for (int j = start; j != (start + shared_memory[i].swnd.size) % 255 + 1; j = (j) % 255 + 1)
+                            {
+                                if (j == received_seq_num)
+                                {
+                                    dup = true;
+                                    break;
+                                }
+                            }
+                            start = shared_memory[i].swnd.start_sequence;
+                            for (int j = start; j != (start + shared_memory[i].swnd.size) % 255 + 1; j = (j) % 255 + 1)
+                            {
+                                if (j == received_seq_num)
+                                {
+                                    dup = true;
+                                    break;
+                                }
+                            }
+                            for(int j = start; j != (start + shared_memory[i].rwnd.size) % 255 + 1; j = (j) % 255 + 1)
+                            {
+                                if(j == received_seq_num)
+                                {
+                                    dup = true;
+                                    break;
+                                }
+                            }
+                            if (dup == false)
+                            {
+                                printf("Thread R: Duplicate Message on Socket %d, seq_num %d\n", i, received_seq_num);
                                 continue;
                             }
 
-                            else if (shared_memory[i].rwnd.start_sequence == received_seq_num)
+                            else if (shared_memory[i].rwnd.start_sequence == received_seq_num && shared_memory[i].rwnd.size > 0)
                             {
                                 printf("\n2. Received Seq Num = %d\n", received_seq_num);
                                 printf("2. Shared_memory[i].rwnd.start_sequence = %d\n", shared_memory[i].rwnd.start_sequence);
@@ -218,19 +260,21 @@ void *thread_R_function(void *arg)
                                 dest_addr.sin_addr.s_addr = inet_addr(shared_memory[i].dest_ip);
 
                                 sendto(shared_memory[i].udp_socket, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+                                shared_memory[i].rwnd.valid_seq_num[shared_memory[i].rwnd.start_sequence] = 0;
                                 shared_memory[i].rwnd.valid_seq_num[shared_memory[i].swnd.start_sequence] = 0;
 
                                 if (received_seq_num != -1)
                                 {
                                     shared_memory[i].last_ack_received = received_seq_num;
                                 }
-
-                                shared_memory[i].rwnd.start_sequence++;
-                                while (!shared_memory[i].rwnd.valid_seq_num[shared_memory[i].rwnd.start_sequence])
+                                while (shared_memory[i].rwnd.valid_seq_num[shared_memory[i].rwnd.start_sequence] == 0)
                                 {
-                                    // printf("Hehe 2\n");
-                                    shared_memory[i].rwnd.start_sequence++;
-                                    shared_memory[i].rwnd.start_sequence %= 256;
+                                    if(shared_memory[i].rwnd.start_sequence == 1)
+                                    {
+                                        printf("\nThread R: Shared_memory[i].rwnd.start_sequence = %d\n", shared_memory[i].rwnd.start_sequence);
+                                        printf("Thread R: shared_memory[i].rwnd.valid_seq_num[shared_memory[i].rwnd.start_sequence] = %d\n\n", shared_memory[i].rwnd.valid_seq_num[shared_memory[i].rwnd.start_sequence]);
+                                    }
+                                    shared_memory[i].rwnd.start_sequence = 1 + shared_memory[i].rwnd.start_sequence % 255;
                                 }
                             }
 
@@ -270,10 +314,9 @@ void *thread_R_function(void *arg)
                                     dest_addr.sin_addr.s_addr = inet_addr(shared_memory[i].dest_ip);
                                     int j = shared_memory[i].rwnd.start_sequence;
 
-                                    while (j != received_seq_num + 1)
+                                    while (j != (received_seq_num) % 255 + 1)
                                     {
-                                        j++;
-                                        j %= 256;
+                                        j = j % 255 + 1;
                                     }
                                     shared_memory[i].rwnd.start_sequence = j;
                                     shared_memory[i].swnd.start_sequence = j;
@@ -281,6 +324,7 @@ void *thread_R_function(void *arg)
                                     sendto(shared_memory[i].udp_socket, ack_buffer, sizeof(ack_buffer), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
                                     printf("Thread R: Sent the already received data ACK for seq_num %d\n", received_seq_num);
                                 }
+                                // printf("Thread R: Received out of order but expected message with seq_num = %d\n", received_seq_num);
                                 printf("\n3. Received Seq Num = %d\n", received_seq_num);
                                 printf("3. Shared_memory[i].rwnd.start_sequence = %d\n", shared_memory[i].rwnd.start_sequence);
                                 printf("3. Shared_memory[i].rwnd.size = %d\n", shared_memory[i].rwnd.size);
@@ -356,7 +400,8 @@ void *thread_S_function(void *arg)
                         printf("\nThread S: Timeout occurred on socket %d\n", i);
                         timeout = true;
                         int k = shared_memory[i].swnd.start_sequence;
-                        for (; k != (shared_memory[i].swnd.size + shared_memory[i].swnd.start_sequence); k++)
+                        int start = k;
+                        for (; k != (start + shared_memory[i].swnd.size) % 255 + 1 && shared_memory[i].rwnd.valid_seq_num[k] != 0; k = (k) % 255 + 1)
                         {
                             if (shared_memory[i].swnd.valid_seq_num[k] != 0 && shared_memory[i].swnd.index_seq_num[k] >= 0)
                             {
@@ -387,8 +432,15 @@ void *thread_S_function(void *arg)
                     printf("Thread S: No timeout on socket %d\n", i);
 
                     int k = shared_memory[i].swnd.start_sequence;
-                    int start = shared_memory[i].swnd.start_sequence;
-                    for (; k != (start + shared_memory[i].swnd.size) && shared_memory[i].rwnd.valid_seq_num[k] != 0; k++)
+                    int start = k;
+
+                    if (shared_memory[i].swnd.size == 0 || shared_memory[i].rwnd.size == 0)
+                    {
+                        continue;
+                    }
+
+                    // printf("Thread S: (Start + shared_memory[i].swnd.size) 255 + 1 = %d\n", (start + shared_memory[i].swnd.size) % 255 + 1);
+                    for (; k != (start + shared_memory[i].swnd.size) % 255 + 1 && shared_memory[i].rwnd.valid_seq_num[k] != 0; k = (k) % 255 + 1)
                     {
                         if (shared_memory[i].swnd.index_seq_num[k] >= 0 && shared_memory[i].send_time[shared_memory[i].swnd.index_seq_num[k]] == -1)
                         {
@@ -402,7 +454,7 @@ void *thread_S_function(void *arg)
                             shared_memory[i].send_time[shared_memory[i].swnd.index_seq_num[k]] = time(NULL);
 
                             sendto(shared_memory[i].udp_socket, shared_memory[i].send_buffer[shared_memory[i].swnd.index_seq_num[k]], MESSAGE_SIZE, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-                            printf("Thread S: Sent seq_num %d on socket %d\n\n", k, i);
+                            printf("\nThread S: Sent seq_num %d on socket %d\n", k, i);
                         }
                     }
                 }

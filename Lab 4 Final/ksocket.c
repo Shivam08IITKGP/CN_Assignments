@@ -118,17 +118,21 @@ int k_sendto(int sockfd, const void *message, size_t length)
     }
 
     // Get the next sequence number
-    uint8_t seq_num = shared_memory[sockfd].max_seq_number_yet++;
-
+    printf("Max seq number yet: %d\n", shared_memory[sockfd].max_seq_number_yet);
+    int seq_num = shared_memory[sockfd].max_seq_number_yet;
+    shared_memory[sockfd].max_seq_number_yet = 1 + shared_memory[sockfd].max_seq_number_yet % 255;
+    
     // Create message with sequence number
     char seq_message[MESSAGE_SIZE];
-    seq_message[0] = seq_num;
+    seq_message[0] = (char)seq_num;
     seq_message[1] = (char)free_index;
-
+    
     memcpy(seq_message + 2, message, length);
     seq_message[length + 2] = '\0';
     shared_memory[sockfd].swnd.index_seq_num[seq_num] = free_index;
     shared_memory[sockfd].sbuff_free[free_index] = false;
+    shared_memory[sockfd].swnd.valid_seq_num[seq_num] = 1;
+    shared_memory[sockfd].rwnd.valid_seq_num[seq_num] = 1;
     memcpy(shared_memory[sockfd].send_buffer[free_index], seq_message, MESSAGE_SIZE);
     sem_post(sem_SM);
     sem_close(sem_SM);
@@ -168,7 +172,7 @@ int k_recvfrom(int sockfd, void *buffer, size_t length)
 
     // Check if any messages are available
     int index = -1;
-    int min_seq_num = 256;
+    int min_seq_num = 257;
     for (int i = 0; i < 10; i++)
     {
         if (!shared_memory[sockfd].rbuff_free[i])
@@ -186,7 +190,7 @@ int k_recvfrom(int sockfd, void *buffer, size_t length)
         }
     }
 
-    if (min_seq_num > shared_memory[sockfd].rwnd.start_sequence || min_seq_num == 256)
+    if (min_seq_num > shared_memory[sockfd].rwnd.start_sequence || min_seq_num == 257)
     {
         sem_post(sem_SM);
         sem_close(sem_SM);
@@ -204,8 +208,7 @@ int k_recvfrom(int sockfd, void *buffer, size_t length)
 
     if (shared_memory[sockfd].rwnd.start_sequence == min_seq_num)
     {
-        shared_memory[sockfd].rwnd.start_sequence++;
-        shared_memory[sockfd].rwnd.start_sequence %= 256;
+        shared_memory[sockfd].rwnd.start_sequence = 1 + shared_memory[sockfd].rwnd.start_sequence % 255;
     }
     // Copy message to buffer (skip the sequence number byte)
     int msg_len = strlen(shared_memory[sockfd].recv_buffer[index] + 2);
@@ -220,6 +223,10 @@ int k_recvfrom(int sockfd, void *buffer, size_t length)
     shared_memory[sockfd].swnd.size++;
     shared_memory[sockfd].swnd.size = shared_memory[sockfd].swnd.size > 10 ? 10 : shared_memory[sockfd].swnd.size;
     shared_memory[sockfd].rwnd.size = shared_memory[sockfd].rwnd.size > 10 ? 10 : shared_memory[sockfd].rwnd.size;
+    shared_memory[sockfd].rwnd.index_seq_num[min_seq_num] = -1;
+    shared_memory[sockfd].swnd.index_seq_num[min_seq_num] = -1;
+    shared_memory[sockfd].rwnd.valid_seq_num[min_seq_num] = 1;
+    shared_memory[sockfd].swnd.valid_seq_num[min_seq_num] = 1;
     sem_post(sem_SM);
     sem_close(sem_SM);
 
@@ -394,7 +401,6 @@ int k_close(int sockfd)
     // Mark entry as free
     shared_memory[sockfd].is_free = 1;
     shared_memory[sockfd].pid = 0;
-    
 
     sem_post(sem_SM);
     sem_close(sem_SM);

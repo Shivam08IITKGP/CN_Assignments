@@ -41,7 +41,7 @@ int main()
         if (bytes_received <= 0)
         {
             // printf("Not received any data.\n");
-            sleep(1);
+            sleep(2);
             continue;
         }
 
@@ -67,6 +67,7 @@ int main()
     printf("File reception completed.\n");
 
     sleep((unsigned int)(10000 * P));
+    sleep(20);
 
     // Close the socket
     if (k_close(sockfd) < 0)

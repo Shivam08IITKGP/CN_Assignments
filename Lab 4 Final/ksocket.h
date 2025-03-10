@@ -23,7 +23,7 @@
 // Constants
 #define SOCK_KTP 3 // Custom socket type for KTP
 #define T 5        // Timeout duration in seconds
-#define P 0.4      // Default probability for dropMessage()
+#define P 0.0      // Default probability for dropMessage()
 
 // Error codes
 #define ENOSPACE -1   // No space available in the buffer or shared memory
@@ -37,7 +37,7 @@
 typedef struct
 {
     signed char index_seq_num[256]; // Sequence numbers of unacknowledged messages
-    int size;                   // Current size of the sender window
+    int size;                       // Current size of the sender window
     bool valid_seq_num[256];
     int start_sequence;
 } SenderWindow;
@@ -46,7 +46,7 @@ typedef struct
 typedef struct
 {
     signed char index_seq_num[256]; // Sequence numbers of received but unacknowledged messages
-    int size;                   // Current size of the receiver window
+    int size;                       // Current size of the receiver window
     bool valid_seq_num[256];
     int start_sequence;
 } ReceiverWindow;
