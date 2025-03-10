@@ -68,7 +68,7 @@ int k_sendto(int sockfd, const void *message, size_t length)
         printf("k_sendto: Failed to open sem_SM.\n");
         return -1;
     }
-    
+
     // Check if socket is allocated to this process
     sem_wait(sem_SM);
     shared_memory[sockfd].pid = getpid();
@@ -88,7 +88,7 @@ int k_sendto(int sockfd, const void *message, size_t length)
         return -1;
     }
 
-    if (length > MESSAGE_SIZE - 2) // Reserve space for seq number and null terminator
+    if (length > MESSAGE_SIZE - 3) // Reserve space for seq number and null terminator
     {
         printf("Message too long.\n");
         sem_post(sem_SM);
@@ -123,7 +123,9 @@ int k_sendto(int sockfd, const void *message, size_t length)
     // Create message with sequence number
     char seq_message[MESSAGE_SIZE];
     seq_message[0] = seq_num;
-    memcpy(seq_message + 1, message, length);
+    seq_message[1] = (char)free_index;
+
+    memcpy(seq_message + 2, message, length);
     seq_message[length + 1] = '\0';
     shared_memory[sockfd].swnd.index_seq_num[seq_num] = free_index;
     shared_memory[sockfd].sbuff_free[free_index] = false;
@@ -209,9 +211,9 @@ int k_recvfrom(int sockfd, void *buffer, size_t length)
     }
     // Copy message to buffer (skip the sequence number byte)
     size_t msg_len = strlen(shared_memory[sockfd].recv_buffer[index]);
-    msg_len--;
+    msg_len -= 2;
 
-    memcpy(buffer, shared_memory[sockfd].recv_buffer[index] + 1, msg_len);
+    memcpy(buffer, shared_memory[sockfd].recv_buffer[index] + 2, msg_len);
     ((char *)buffer)[msg_len] = '\0'; // Ensure null termination
 
     // Mark buffer as free
@@ -349,7 +351,7 @@ int k_bind(int sockfd, const char *src_ip, uint16_t src_port, const char *dest_i
     strncpy(k_sockets[sockfd].src_ip, shared_memory[sockfd].src_ip, 15);
     k_sockets[sockfd].src_ip[15] = '\0';
     k_sockets[sockfd].src_port = shared_memory[sockfd].src_port;
-    
+
     printf("k_bind: bind_function completed, continuing\n");
     printf("Socket got Index %d\n", sockfd);
     printf("Source IP: %s\n", src_ip);
@@ -397,7 +399,8 @@ int k_close(int sockfd)
 
     // Mark entry as free
     shared_memory[sockfd].is_free = 1;
-    shared_memory[sockfd].pid = 0;;
+    shared_memory[sockfd].pid = 0;
+    ;
 
     sem_post(sem_SM);
     sem_close(sem_SM);

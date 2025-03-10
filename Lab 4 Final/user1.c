@@ -35,7 +35,7 @@ int main()
     }
 
     // Read and send the file in chunks of MESSAGE_SIZE
-    while ((bytes_read = fread(message, 1, MESSAGE_SIZE - 2, file)) > 0)
+    while ((bytes_read = fread(message, 1, MESSAGE_SIZE - 3, file)) > 0)
     {
         while (k_sendto(sockfd, message, bytes_read) < 0)
         {

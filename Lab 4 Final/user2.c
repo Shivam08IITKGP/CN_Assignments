@@ -7,7 +7,7 @@ int main()
     initialize_shared_memory();
     int sockfd;
     FILE *file;
-    char buffer[MESSAGE_SIZE];
+    char buffer[MESSAGE_SIZE - 2];
     ssize_t bytes_received;
 
     // Create KTP socket
@@ -31,13 +31,13 @@ int main()
         perror("Failed to open output.txt");
         exit(EXIT_FAILURE);
     }
-    
+
     fclose(file);
     file = NULL;
     // Receive the file in chunks of MESSAGE_SIZE
     while (1)
     {
-        bytes_received = k_recvfrom(sockfd, buffer, MESSAGE_SIZE);
+        bytes_received = k_recvfrom(sockfd, buffer, MESSAGE_SIZE - 2);
         if (bytes_received <= 0)
         {
             // printf("Not received any data.\n");
