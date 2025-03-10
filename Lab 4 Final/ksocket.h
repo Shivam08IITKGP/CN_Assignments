@@ -23,7 +23,7 @@
 // Constants
 #define SOCK_KTP 3 // Custom socket type for KTP
 #define T 5        // Timeout duration in seconds
-#define P 0.3      // Default probability for dropMessage()
+#define P 0.4      // Default probability for dropMessage()
 
 // Error codes
 #define ENOSPACE -1   // No space available in the buffer or shared memory

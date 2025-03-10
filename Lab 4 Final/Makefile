@@ -35,6 +35,6 @@ run:
 	./user2
 
 clean:
-	rm -f *.o libksocket.a initksocket user1 user2
+	rm -f *.o libksocket.a initksocket user1 user2 output.txt
 
 .PHONY: all clean

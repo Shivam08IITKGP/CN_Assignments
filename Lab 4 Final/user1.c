@@ -46,11 +46,9 @@ int main()
 
     // Send end-of-file marker
     const char *end_marker = "EOF";
-    if (k_sendto(sockfd, end_marker, strlen(end_marker) + 1) < 0)
+    while (k_sendto(sockfd, end_marker, strlen(end_marker) + 1) < 0)
     {
-        perror("Failed to send EOF marker");
-        fclose(file);
-        exit(EXIT_FAILURE);
+        sleep(2);
     }
     printf("File transmission completed.\n");
 

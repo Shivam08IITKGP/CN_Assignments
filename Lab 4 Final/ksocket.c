@@ -126,7 +126,7 @@ int k_sendto(int sockfd, const void *message, size_t length)
     seq_message[1] = (char)free_index;
 
     memcpy(seq_message + 2, message, length);
-    seq_message[length + 1] = '\0';
+    seq_message[length + 2] = '\0';
     shared_memory[sockfd].swnd.index_seq_num[seq_num] = free_index;
     shared_memory[sockfd].sbuff_free[free_index] = false;
     memcpy(shared_memory[sockfd].send_buffer[free_index], seq_message, MESSAGE_SIZE);
@@ -188,8 +188,6 @@ int k_recvfrom(int sockfd, void *buffer, size_t length)
 
     if (min_seq_num > shared_memory[sockfd].rwnd.start_sequence || min_seq_num == 256)
     {
-        // printf("min_seq_num = %d\n", min_seq_num);
-        // printf("shared_memory[sockfd].rwnd.start_sequence = %d\n", shared_memory[sockfd].rwnd.start_sequence);
         sem_post(sem_SM);
         sem_close(sem_SM);
         // ksocket_errno = ENOMESSAGE;
@@ -210,22 +208,18 @@ int k_recvfrom(int sockfd, void *buffer, size_t length)
         shared_memory[sockfd].rwnd.start_sequence %= 256;
     }
     // Copy message to buffer (skip the sequence number byte)
-    size_t msg_len = strlen(shared_memory[sockfd].recv_buffer[index]);
-    msg_len -= 2;
+    int msg_len = strlen(shared_memory[sockfd].recv_buffer[index] + 2);
+    // msg len excludes the null terminator by itself
 
     memcpy(buffer, shared_memory[sockfd].recv_buffer[index] + 2, msg_len);
-    ((char *)buffer)[msg_len] = '\0'; // Ensure null termination
-
     // Mark buffer as free
     shared_memory[sockfd].rbuff_free[index] = true;
-    memset(shared_memory[sockfd].recv_buffer[index], 0, MESSAGE_SIZE);
-
+    memset(shared_memory[sockfd].recv_buffer[index], '\0', MESSAGE_SIZE);
     // Update receiver window
     shared_memory[sockfd].rwnd.size++;
     shared_memory[sockfd].swnd.size++;
     shared_memory[sockfd].swnd.size = shared_memory[sockfd].swnd.size > 10 ? 10 : shared_memory[sockfd].swnd.size;
     shared_memory[sockfd].rwnd.size = shared_memory[sockfd].rwnd.size > 10 ? 10 : shared_memory[sockfd].rwnd.size;
-
     sem_post(sem_SM);
     sem_close(sem_SM);
 
@@ -400,7 +394,7 @@ int k_close(int sockfd)
     // Mark entry as free
     shared_memory[sockfd].is_free = 1;
     shared_memory[sockfd].pid = 0;
-    ;
+    
 
     sem_post(sem_SM);
     sem_close(sem_SM);
