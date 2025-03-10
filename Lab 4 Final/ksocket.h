@@ -23,7 +23,7 @@
 // Constants
 #define SOCK_KTP 3 // Custom socket type for KTP
 #define T 5        // Timeout duration in seconds
-#define P 0.0      // Default probability for dropMessage()
+#define P 0.10      // Default probability for dropMessage()
 
 // Error codes
 #define ENOSPACE -1   // No space available in the buffer or shared memory
@@ -61,9 +61,9 @@ typedef struct
     uint16_t dest_port;        // Destination port number
     char src_ip[16];           // Source IP address (IPv4)
     uint16_t src_port;         // Source port number
-    char send_buffer[10][512]; // Sender-side message buffer (10 messages * 512 bytes)
+    unsigned char send_buffer[10][512]; // Sender-side message buffer (10 messages * 512 bytes)
     bool sbuff_free[10];
-    char recv_buffer[10][512]; // Receiver-side message buffer (10 messages * 512 bytes)
+    unsigned char recv_buffer[10][512]; // Receiver-side message buffer (10 messages * 512 bytes)
     bool rbuff_free[10];
     SenderWindow swnd;   // Sender window structure
     ReceiverWindow rwnd; // Receiver window structure
