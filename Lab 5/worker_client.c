@@ -139,7 +139,7 @@ int main(int argc, char *argv[])
                 printf("Server acknowledgment: %s\n", buffer);
                 num_tasks++;
 
-                // Simulate computation time, why???
+                // Simulate computation time
                 sleep(1);
             }
             else
