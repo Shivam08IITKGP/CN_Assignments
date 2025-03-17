@@ -98,6 +98,15 @@ int main(int argc, char *argv[])
             continue;
         }
 
+        if (strncmp(buffer, "Is", 2) == 0)
+        {
+            printf("Already one task is assigned\n");
+            printf("%s\n", buffer);
+            // Sleep for a bit before requesting another task
+            sleep(2);
+            continue;
+        }
+
         // Parse the task if valid
         if (strncmp(buffer, "Task:", 5) == 0)
         {

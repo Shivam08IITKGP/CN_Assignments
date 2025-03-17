@@ -20,6 +20,7 @@ Shivam Choudhury
 #include <semaphore.h>
 #include <limits.h>
 #include <sys/shm.h>
+#include <time.h>
 
 #define PORT 8080
 #define MAX_TASKS 100
@@ -104,7 +105,7 @@ int get_next_task(int client_id)
     // Check if this client already has an assigned task
     for (int i = 0; i < shared_data->task_count; i++)
     {
-        if (shared_data->tasks[i].state == 1 && shared_data->tasks[i].assigned_to_client == client_id)
+        if (shared_data->tasks[i].state == 1)
         {
             sem_post(&shared_data->mutex);
             return -2; // Client already has an assigned task
@@ -180,6 +181,8 @@ void handle_client(int client_sock, int client_id)
     char task_msg[1024];
     ssize_t bytes_received;
     int current_task = -1;
+    time_t last_active_time = time(NULL);
+    int timeout = 10;
 
     // Set socket to non-blocking mode
     int flags = fcntl(client_sock, F_GETFL, 0);
@@ -189,6 +192,20 @@ void handle_client(int client_sock, int client_id)
 
     while (1)
     {
+        time_t curr_time = time(NULL);
+        if (curr_time - last_active_time > timeout && current_task != -1)
+        {
+            printf("Client %d is inactive for %d seconds. Task %s is reassigned to the queue\n", client_id, timeout, shared_data->tasks[current_task].description);
+
+            sem_wait(&shared_data->mutex);
+            shared_data->tasks[current_task].state = 0;
+            shared_data->tasks[current_task].assigned_to_client = -1;
+            sem_post(&shared_data->mutex);
+
+            current_task = -1;
+            break;
+        }
+
         if (shared_data->server_shutdown)
         {
             printf("Child process %d detected server shutdown, notifying client and exiting\n", client_id);
@@ -218,10 +235,9 @@ void handle_client(int client_sock, int client_id)
             else if (strncmp(buffer, "GET_TASK", 8) == 0)
             {
                 int task_index = get_next_task(client_id);
-
                 if (task_index == -2)
                 {
-                    strcpy(task_msg, "Error: You already have an assigned task. Complete it first.");
+                    strcpy(task_msg, "Error: A client already have an assigned task. Complete it first.");
                     send(client_sock, task_msg, strlen(task_msg), 0);
                 }
                 else if (task_index >= 0)
@@ -230,7 +246,6 @@ void handle_client(int client_sock, int client_id)
 
                     send(client_sock, task_msg, strlen(task_msg), 0);
                     current_task = task_index;
-                    printf("Task assigned to client %d: %s\n", client_id, shared_data->tasks[task_index].description);
                 }
                 else
                 {
