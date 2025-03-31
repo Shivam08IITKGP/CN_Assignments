@@ -8,11 +8,15 @@ Roll number: 22CS10072
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
+#include <netdb.h>
+#include <sys/types.h>
 #include <sys/select.h>
 #include <netinet/ip.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
 #include <signal.h>
+#include <ifaddrs.h>
 #include <errno.h>
 #include <time.h>
 
@@ -20,7 +24,6 @@ Roll number: 22CS10072
 #define BUFFER_SIZE 2048
 #define MAX_PAYLOAD 1024
 #define RESPONSE_TIMEOUT 5 /* Seconds to wait for responses */
-#define DEST_IP "192.168.137.72"
 
 /* CLDP Message Types */
 #define CLDP_HELLO 0x01
@@ -72,6 +75,8 @@ void print_usage(const char *program_name);
 void process_response(char *buffer, int bytes_received);
 
 void discover_servers();
+
+in_addr_t get_local_ip();
 
 int main(int argc, char *argv[])
 {
@@ -161,6 +166,11 @@ int main(int argc, char *argv[])
                 printf("No more responses\n");
                 continue;
             }
+            else if (running == 0)
+            {
+                printf("Sig child called\n");
+                continue;
+            }
             else
             {
                 perror("recvfrom() failed");
@@ -188,6 +198,7 @@ int main(int argc, char *argv[])
         travel = travel->next;
         free(temp);
     }
+    printf("Freed all nodes\n");
 
     /* Clean up */
     close(sock_fd);
@@ -198,6 +209,7 @@ int main(int argc, char *argv[])
 void handle_signal(int sig)
 {
     running = 0;
+    printf("\nShutting down client...\n");
 }
 
 /* Calculate IP header checksum */
@@ -224,13 +236,15 @@ void send_query(int sock, uint8_t metadata_type)
     struct node *travel = head;
     while (travel != NULL)
     {
-        struct sockaddr_in dest_addr = travel->dest_addr;
+        struct sockaddr_in dest_addr;
+        dest_addr.sin_addr.s_addr = travel->dest_addr.sin_addr.s_addr;
         dest_addr.sin_family = AF_INET;
 
         char buffer[29];
         memset(buffer, 0, sizeof(buffer));
 
         struct iphdr *ip_header = (struct iphdr *)buffer;
+
         ip_header->version = 4;
         ip_header->ihl = 5;
         ip_header->tos = 0;
@@ -239,8 +253,8 @@ void send_query(int sock, uint8_t metadata_type)
         ip_header->frag_off = 0;
         ip_header->ttl = 64;
         ip_header->protocol = CLDP_PROTOCOL;
-        ip_header->saddr = inet_addr(DEST_IP);
         ip_header->daddr = dest_addr.sin_addr.s_addr;
+        ip_header->saddr = get_local_ip();
         ip_header->check = calculate_checksum((void *)ip_header, sizeof(struct iphdr));
 
         struct cldp_header *cldp_hdr = (struct cldp_header *)(buffer + 20);
@@ -253,7 +267,6 @@ void send_query(int sock, uint8_t metadata_type)
         }
         else
             cldp_hdr->transaction_id = htons(travel->tid);
-        cldp_hdr->reserved = 0;
 
         buffer[20 + 8] = metadata_type;
 
@@ -274,6 +287,7 @@ void print_usage(const char *program_name)
     printf("  query all             - Query all nodes for all metadata types\n");
 }
 
+/* Process the response from the server */
 void process_response(char *buffer, int bytes_received)
 {
     // extract IP header
@@ -294,6 +308,7 @@ void process_response(char *buffer, int bytes_received)
         printf("Checksum failed\n");
         return;
     }
+
     // Extract the server address
     struct in_addr response_ip;
     response_ip.s_addr = ip_hdr->saddr;
@@ -310,7 +325,7 @@ void process_response(char *buffer, int bytes_received)
 
     while (travel != NULL)
     {
-        if (travel->tid == tid && travel->dest_addr.sin_addr.s_addr == ip_hdr->saddr)
+        if (travel->dest_addr.sin_addr.s_addr == ip_hdr->saddr)
         {
             found = 1;
             break;
@@ -318,9 +333,9 @@ void process_response(char *buffer, int bytes_received)
 
         travel = travel->next;
     }
-    if (!found)
+    if (!found || travel->tid != tid)
     {
-        printf("Transaction ID not found\n");
+        printf("Server address not found: %s\n", inet_ntoa(response_ip));
         return;
     }
 
@@ -337,11 +352,7 @@ void process_response(char *buffer, int bytes_received)
         printf("Metadata: %s\n", metadata_value);
         break;
     }
-    default:
-        printf("Unknown message type\n");
-        break;
     }
-
 }
 
 void discover_servers()
@@ -350,77 +361,140 @@ void discover_servers()
     struct sockaddr_in sender_addr;
     socklen_t addr_len = sizeof(sender_addr);
 
-    fd_set readfds;
-    struct timeval timeout;
-
-    timeout.tv_sec = 10;
-    timeout.tv_usec = 0;
-
-    FD_ZERO(&readfds);
-    FD_SET(sock_fd, &readfds);
-
     printf("Waiting for HELLO messages...\n");
+
+    struct timeval start_time, current_time;
+    gettimeofday(&start_time, NULL);
+    const int discovery_timeout = 10;
 
     while (1)
     {
-        fd_set temp_fds = readfds; // Select modifies fd_set, so use a copy
-        int activity = select(sock_fd + 1, &temp_fds, NULL, NULL, &timeout);
+        fd_set readfds;
+        struct timeval timeout, elapsed;
+
+        // Calculate remaining timeout
+        gettimeofday(&current_time, NULL);
+        timersub(&current_time, &start_time, &elapsed);
+        if (elapsed.tv_sec >= discovery_timeout)
+        {
+            printf("Discovery timeout reached\n");
+            break;
+        }
+
+        // Set fresh timeout for each select call
+        timeout.tv_sec = discovery_timeout - elapsed.tv_sec;
+        timeout.tv_usec = 0;
+
+        FD_ZERO(&readfds);
+        FD_SET(sock_fd, &readfds);
+
+        int activity = select(sock_fd + 1, &readfds, NULL, NULL, &timeout);
 
         if (activity < 0)
         {
             perror("select() failed");
             return;
         }
-        else if (activity == 0)
+        if (activity == 0)
         {
-            printf("Discovery complete, no more HELLO messages received.\n");
-            break; // Timeout occurred, exit discovery loop
+            printf("Discovery complete\n");
+            break;
         }
 
-        // Data is available on the socket, receive it
-        int bytes_received = recvfrom(sock_fd, buffer, BUFFER_SIZE, 0,
-                                      (struct sockaddr *)&sender_addr, &addr_len);
+        // Receive packet with proper error handling
+        ssize_t bytes_received = recvfrom(sock_fd, buffer, BUFFER_SIZE, 0,
+                                          (struct sockaddr *)&sender_addr, &addr_len);
         if (bytes_received < 0)
         {
             perror("recvfrom() failed");
             continue;
         }
 
-        // Parse IP and CLDP headers
+        // Verify minimum packet size
+        if (bytes_received < (ssize_t)(sizeof(struct iphdr) + sizeof(struct cldp_header)))
+        {
+            fprintf(stderr, "Received undersized packet (%zd bytes)\n", bytes_received);
+            continue;
+        }
+
+        // Parse headers using proper alignment
         struct iphdr *ip_header = (struct iphdr *)buffer;
         struct cldp_header *cldp_hdr = (struct cldp_header *)(buffer + sizeof(struct iphdr));
 
-        if (ip_header->protocol == CLDP_PROTOCOL && cldp_hdr->msg_type == CLDP_HELLO)
+        // Validate protocol and message type
+        if (ip_header->protocol != CLDP_PROTOCOL || cldp_hdr->msg_type != CLDP_HELLO)
         {
-            printf("Discovered server: %s\n", inet_ntoa(sender_addr.sin_addr));
+            continue;
+        }
 
-            // Check if already present in the linked list
-            struct node *travel = head;
-            int found = 0;
-            while (travel != NULL)
+        // Get actual source IP from IP header (critical fix)
+        struct in_addr actual_src;
+        actual_src.s_addr = ip_header->saddr;
+
+        printf("Discovered server: %s\n", inet_ntoa(actual_src)); // Fixed logging
+
+        // Check for existing entries using correct IP comparison
+        struct node *current = head;
+        int exists = 0;
+        while (current)
+        {
+            if (current->dest_addr.sin_addr.s_addr == actual_src.s_addr)
             {
-                if (travel->dest_addr.sin_addr.s_addr == sender_addr.sin_addr.s_addr)
-                {
-                    found = 1;
-                    break;
-                }
-                travel = travel->next;
+                exists = 1;
+                break;
+            }
+            current = current->next;
+        }
+
+        if (!exists)
+        {
+            // Create properly initialized node
+            struct node *new_node = (struct node *)malloc(sizeof(struct node));
+            if (!new_node)
+            {
+                perror("malloc failed");
+                exit(EXIT_FAILURE);
             }
 
-            // Add new server to linked list
-            if (!found)
-            {
-                struct node *new_node = (struct node *)malloc(sizeof(struct node));
-                if (!new_node)
-                {
-                    perror("malloc failed");
-                    exit(EXIT_FAILURE);
-                }
-                new_node->tid = 0;
-                new_node->dest_addr = sender_addr;
-                new_node->next = head;
-                head = new_node;
-            }
+            // Initialize all fields
+            memset(new_node, 0, sizeof(*new_node));
+            new_node->dest_addr.sin_family = AF_INET;
+            new_node->dest_addr.sin_addr.s_addr = actual_src.s_addr;
+            new_node->next = head;
+            head = new_node;
+
+            printf("New server registered: %s:%d\n",
+                   inet_ntoa(new_node->dest_addr.sin_addr),
+                   ntohs(new_node->dest_addr.sin_port));
         }
     }
+}
+
+in_addr_t get_local_ip()
+{
+    struct ifaddrs *ifaddr, *ifa;
+    in_addr_t ip = htonl(INADDR_LOOPBACK);
+
+    if (getifaddrs(&ifaddr) == -1)
+    {
+        perror("getifaddrs failed");
+        return ip;
+    }
+
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
+    {
+        if (ifa->ifa_addr == NULL)
+            continue;
+
+        if (ifa->ifa_addr->sa_family == AF_INET &&
+            strcmp(ifa->ifa_name, "lo") != 0)
+        {
+            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+            ip = addr->sin_addr.s_addr;
+            break;
+        }
+    }
+
+    freeifaddrs(ifaddr);
+    return ip;
 }

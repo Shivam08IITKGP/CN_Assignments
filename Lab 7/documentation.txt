@@ -1,0 +1,40 @@
+Custom Lightweight Discovery Protocol (CLDP) Documentation:
+Protocol Specification
+CLDP is a custom protocol designed for node discovery and metadata querying in closed network environments. It operates directly over IP (protocol number 253) without using transport-layer protocols.
+
+Message Types
+0x01: HELLO - Used by servers to announce their presence
+0x02: QUERY - Sent by clients to request specific metadata
+0x03: RESPONSE - Sent by servers containing requested metadata
+
+CLDP Header Format
+The CLDP header is 8 bytes with the following structure:
+msg_type (1 byte): Message type identifier (HELLO, QUERY, RESPONSE)
+payload_length (1 byte): Length of data following the header
+transaction_id (2 bytes): Unique identifier to match queries with responses
+reserved (4 bytes): Reserved for future use (currently set to 0)
+
+Metadata Types
+The implementation supports three types of metadata:
+0x01: HOSTNAME - System hostname (256 bytes)
+0x02: SYSTIME - Current system time (20 bytes)
+0x03: CPULOAD - CPU load information (33 bytes)
+
+Protocol Flow
+Servers broadcast HELLO messages every 10 seconds
+Clients discover servers by listening for HELLO messages
+Clients send QUERY messages requesting specific metadata
+Servers respond with the requested information in RESPONSE messages
+
+Compilation
+gcc -o cldp_server cldp_server.c
+gcc -o cldp_client cldp_client.c
+
+Running the Programs
+# Start the server
+sudo ./cldp_server
+# In another terminal, run the client
+sudo ./cldp_client query hostname
+sudo ./cldp_client query systime
+sudo ./cldp_client query cpuload
+sudo ./cldp_client query all

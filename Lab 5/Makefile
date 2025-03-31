@@ -5,4 +5,3 @@ run:
 	./server tasks.txt
 clean:
 	rm -f server client
-

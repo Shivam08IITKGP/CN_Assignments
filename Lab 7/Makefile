@@ -1,6 +1,6 @@
 all:
-	gcc -o cldp_server cldp_server.c -pthread
-	gcc -o cldp_client cldp_client.c -pthread
+	gcc -o cldp_server cldp_server.c
+	gcc -o cldp_client cldp_client.c
 clean:
 	rm -f cldp_server cldp_client
 run_server:

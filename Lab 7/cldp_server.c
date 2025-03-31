@@ -17,6 +17,7 @@ Roll number: 22CS10072
 #include <errno.h>
 #include <signal.h>
 #include <time.h>
+#include <ifaddrs.h>
 
 #define BUFFER_SIZE 2048
 #define HOSTNAME_LEN 256
@@ -47,13 +48,14 @@ void get_hostname(char *buffer, int max_len);
 void get_system_time(char *buffer, int max_len);
 void get_cpu_load(char *buffer, int max_len);
 unsigned short calculate_checksum(void *b, int len);
-void send_hello(int sockfd, struct sockaddr_in broadcast_addr);
+void send_hello(int sockfd);
+in_addr_t get_local_ip();
 
 int main()
 {
     srand(time(NULL));
     int sockfd;
-    struct sockaddr_in server_addr, client_addr, broadcast_addr;
+    struct sockaddr_in server_addr, client_addr;
     socklen_t client_len = sizeof(client_addr);
     unsigned char buffer[BUFFER_SIZE];
 
@@ -61,6 +63,8 @@ int main()
     signal(SIGINT, handle_signal);
 
     sockfd = socket(AF_INET, SOCK_RAW, CLDP_PROTOCOL);
+    int broadcast = 1;
+    setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
 
     // Set IP_HDRINCL option, to create IP Header manually
     int opt = 1;
@@ -76,22 +80,14 @@ int main()
     running = 1;
 
     time_t start = time(NULL);
-    send_hello(sockfd, broadcast_addr);
+    send_hello(sockfd);
 
     while (running)
     {
         if (time(NULL) - start > 10)
         {
             // Send HELLO message
-            
-            // Here we do broadcasting as we do not know the client address at all
-            // in broadcasting we send to
-            // Option 1) special broadcast address -> 127.0.0.1 (use when i don't know the subnet address, and want to
-            // broadcast to all the devices in the local network)
-            // Option 2) subnet broadcast address -> (specific ip is provided)
-            // it requires setting SO_BROADCAST option
-            
-            send_hello(sockfd, broadcast_addr);
+            send_hello(sockfd);
             start = time(NULL);
         }
 
@@ -106,6 +102,11 @@ int main()
         {
             if (errno == EAGAIN || errno == EWOULDBLOCK)
             {
+                continue;
+            }
+            else if (running == 0)
+            {
+                printf("Sig child called\n");
                 continue;
             }
             else
@@ -136,8 +137,6 @@ int main()
             continue;
         }
 
-        printf("DEBUG: Received packet from %s\n", inet_ntoa(client_addr.sin_addr));
-
         // Extract the CLDP header
         struct cldp_header *cldp_hdr = (struct cldp_header *)(buffer + sizeof(struct iphdr));
 
@@ -148,13 +147,13 @@ int main()
         {
         case HELLO_TYPE:
         {
-            printf("\nReceived HELLO message\n");
             break;
         }
         case QUERY_TYPE:
         {
             further = 1;
-            printf("\nReceived QUERY message\n");
+            printf("\nReceived packet from %s\n", inet_ntoa(client_addr.sin_addr));
+            printf("Received QUERY message\n");
             uint8_t metadata_type = buffer[sizeof(struct iphdr) + sizeof(struct cldp_header)];
             switch (metadata_type)
             {
@@ -189,21 +188,14 @@ int main()
         }
         case RESPONSE_TYPE:
         {
-            printf("Received RESPONSE message\n");
-            // print the meta data
-            char buff[BUFFER_SIZE];
-            memcpy(buff, buffer + sizeof(struct iphdr) + sizeof(struct cldp_header), cldp_hdr->payload_length);
-            buff[cldp_hdr->payload_length] = '\0';
-            printf("Metadata: %s\n\n", buff);
+            break;
         }
         }
         if (!further)
             continue;
-        // now set up the packet to send back
-        // Set up IP Header
-        // will use the ip_hdr
-        ip_hdr->saddr = server_addr.sin_addr.s_addr;
-        ip_hdr->daddr = client_addr.sin_addr.s_addr;
+
+        ip_hdr->daddr = ip_hdr->saddr;
+        ip_hdr->saddr = get_local_ip();
         ip_hdr->tot_len = htons(sizeof(struct iphdr) + sizeof(struct cldp_header) + strlen(metadata_value));
         ip_hdr->id = htons(rand() % 65535);
         ip_hdr->check = calculate_checksum((void *)ip_hdr, sizeof(struct iphdr));
@@ -211,20 +203,18 @@ int main()
         // Set up CLDP Header
         cldp_hdr->msg_type = RESPONSE_TYPE;
         cldp_hdr->payload_length = strlen(metadata_value);
-        
 
-        // printf("cldp_hdr->tid = %u\n", (unsigned int)ntohs(cldp_hdr->transaction_id));
-        // printf("Metadata = %s\n", metadata_value);
-        // Fill up the ip header and cldp header
         memcpy(buffer, ip_hdr, sizeof(struct iphdr));
         memcpy(buffer + sizeof(struct iphdr), cldp_hdr, sizeof(struct cldp_header));
-        // Fill up the metadata value
         memcpy(buffer + sizeof(struct iphdr) + sizeof(struct cldp_header), metadata_value, strlen(metadata_value));
 
+        client_addr.sin_family = AF_INET;
+        client_addr.sin_addr.s_addr = ip_hdr->daddr;
+
         // Send the packet
-        sendto(sockfd, buffer, sizeof(struct iphdr) + sizeof(struct cldp_header) + strlen(metadata_value), 0, (struct sockaddr *)&client_addr, client_len);
+        sendto(sockfd, buffer, ntohs(ip_hdr->tot_len), 0, (struct sockaddr *)&client_addr, client_len);
         start = time(NULL);
-        printf("Sent RESPONSE message\n");
+        printf("Sent RESPONSE message\n\n");
         free(metadata_value);
     }
 
@@ -277,16 +267,14 @@ void get_cpu_load(char *buffer, int max_len)
     // needs 33 bytes
 }
 
-void send_hello(int sockfd, struct sockaddr_in broadcast_addr)
+void send_hello(int sockfd)
 {
     char buffer[28];
-    int broadcast = 1;
-    setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
 
-    // Set up broadcast address
+    struct sockaddr_in broadcast_addr;
+    memset(&broadcast_addr, 0, sizeof(broadcast_addr));
     broadcast_addr.sin_family = AF_INET;
-    broadcast_addr.sin_port = htons(5000); // Example port
-    broadcast_addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    broadcast_addr.sin_addr.s_addr = inet_addr("255.255.255.255");
 
     memset(buffer, 0, 28);
     struct iphdr *ip_header = (struct iphdr *)buffer;
@@ -301,8 +289,8 @@ void send_hello(int sockfd, struct sockaddr_in broadcast_addr)
     ip_header->frag_off = 0;
     ip_header->ttl = 64;
     ip_header->protocol = CLDP_PROTOCOL;
-    ip_header->saddr = inet_addr("192.168.137.72"); // Server's IP
-    ip_header->daddr = htonl(INADDR_BROADCAST);    // Corrected broadcast address
+    ip_header->saddr = get_local_ip();
+    ip_header->daddr = inet_addr("255.255.255.255");
     ip_header->check = calculate_checksum((void *)ip_header, sizeof(struct iphdr));
 
     // Fill CLDP Header
@@ -320,6 +308,35 @@ void send_hello(int sockfd, struct sockaddr_in broadcast_addr)
     {
         printf("Sent HELLO message\n");
     }
+}
+
+in_addr_t get_local_ip()
+{
+    struct ifaddrs *ifaddr, *ifa;
+    in_addr_t ip = htonl(INADDR_LOOPBACK);
+
+    if (getifaddrs(&ifaddr) == -1)
+    {
+        perror("getifaddrs failed");
+        return ip;
+    }
+
+    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
+    {
+        if (ifa->ifa_addr == NULL)
+            continue;
+
+        if (ifa->ifa_addr->sa_family == AF_INET &&
+            strcmp(ifa->ifa_name, "lo") != 0)
+        {
+            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
+            ip = addr->sin_addr.s_addr;
+            break;
+        }
+    }
+
+    freeifaddrs(ifaddr);
+    return ip;
 }
 
 unsigned short calculate_checksum(void *b, int len)
