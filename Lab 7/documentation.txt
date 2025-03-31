@@ -1,40 +1,56 @@
-Custom Lightweight Discovery Protocol (CLDP) Documentation:
-Protocol Specification
-CLDP is a custom protocol designed for node discovery and metadata querying in closed network environments. It operates directly over IP (protocol number 253) without using transport-layer protocols.
+# CLDP Protocol Implementation Documentation
 
-Message Types
-0x01: HELLO - Used by servers to announce their presence
-0x02: QUERY - Sent by clients to request specific metadata
-0x03: RESPONSE - Sent by servers containing requested metadata
+## 1. Overview
+This document provides details about the implementation of the Custom Lightweight Discovery Protocol (CLDP) using raw sockets in C. The protocol allows servers to announce their presence and clients to query servers for metadata such as hostname and system time.
 
-CLDP Header Format
-The CLDP header is 8 bytes with the following structure:
-msg_type (1 byte): Message type identifier (HELLO, QUERY, RESPONSE)
-payload_length (1 byte): Length of data following the header
-transaction_id (2 bytes): Unique identifier to match queries with responses
-reserved (4 bytes): Reserved for future use (currently set to 0)
+## 2. Requirements and Constraints
+- The user must provide an IP address within the range `127.0.0.0` to `127.255.255.255`.
+- Each server and client must have a unique IP address within the network.
+- The query is sent once to the server, not periodically.
+- The implementation strictly uses raw sockets (`AF_INET`, `SOCK_RAW`).
+- The IP header is manually constructed, using protocol number `253`.
+- No transport-layer protocols (TCP/UDP) are used.
+- Elevated privileges (`sudo`) are required to run the program.
 
-Metadata Types
-The implementation supports three types of metadata:
-0x01: HOSTNAME - System hostname (256 bytes)
-0x02: SYSTIME - Current system time (20 bytes)
-0x03: CPULOAD - CPU load information (33 bytes)
+## 3. Files Included
+- `cldp_client.c` - Implements the client that sends queries to servers.
+- `cldp_server.c` - Implements the server that listens for queries and responds.
+- `documentation.txt` - Provides build and run instructions.
 
-Protocol Flow
-Servers broadcast HELLO messages every 10 seconds
-Clients discover servers by listening for HELLO messages
-Clients send QUERY messages requesting specific metadata
-Servers respond with the requested information in RESPONSE messages
+## 4. Packet Format
+Each CLDP packet consists of:
+- **Message Type (1 byte)**: Defines the type of message (HELLO, QUERY, RESPONSE).
+- **Payload Length (1 byte)**: Specifies the length of the payload.
+- **Transaction ID (2 bytes)**: Unique identifier for tracking responses.
+- **Reserved (4 bytes)**: Unused but reserved for future use.
+- **Payload (variable length)**: Contains metadata (hostname, system time, etc.).
 
-Compilation
-gcc -o cldp_server cldp_server.c
+## 5. Implementation Details
+### Client (`cldp_client.c`)
+- Takes an IP address as input.
+- Sends a **QUERY** message to known server IPs.
+- Listens for **RESPONSE** messages and prints metadata.
+
+### Server (`cldp_server.c`)
+- Listens for **QUERY** messages on a raw socket.
+- On receiving a query, sends a **RESPONSE** containing hostname and system time.
+
+## 6. Running Instructions
+### Compilation
+```
 gcc -o cldp_client cldp_client.c
-
-Running the Programs
-# Start the server
+gcc -o cldp_server cldp_server.c
+```
+### Execution
+```
 sudo ./cldp_server
-# In another terminal, run the client
-sudo ./cldp_client query hostname
-sudo ./cldp_client query systime
-sudo ./cldp_client query cpuload
-sudo ./cldp_client query all
+sudo ./cldp_client hostname
+OR
+sudo ./cldp_client systime
+OR
+sudo ./cldp_client cpuload
+OR
+sudo ./cldp_client all
+```
+
+

@@ -5,9 +5,7 @@ clean:
 	rm -f cldp_server cldp_client
 run_server:
 	sudo ./cldp_server
-run_client_discover:
-	sudo ./cldp_client discover
-run_client_query:
+run_client_hostname:
 	sudo ./cldp_client query hostname
 run_client_time:
 	sudo ./cldp_client query systime

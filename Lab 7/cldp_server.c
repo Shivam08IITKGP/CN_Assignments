@@ -34,6 +34,8 @@ Roll number: 22CS10072
 #define METADATA_CPULOAD 0x03
 
 int running;
+struct in_addr ip_address;
+uint16_t transaction_id = 0;
 
 struct cldp_header
 {
@@ -49,7 +51,6 @@ void get_system_time(char *buffer, int max_len);
 void get_cpu_load(char *buffer, int max_len);
 unsigned short calculate_checksum(void *b, int len);
 void send_hello(int sockfd);
-in_addr_t get_local_ip();
 
 int main()
 {
@@ -58,6 +59,14 @@ int main()
     struct sockaddr_in server_addr, client_addr;
     socklen_t client_len = sizeof(client_addr);
     unsigned char buffer[BUFFER_SIZE];
+
+    printf("Enter IP Address for Server (no ports) = ");
+    char ip[INET_ADDRSTRLEN];
+    if (fgets(ip, sizeof(ip), stdin))
+    {
+        ip[strcspn(ip, "\n")] = 0; // Remove trailing newline
+    }
+    inet_pton(AF_INET, ip, &ip_address);
 
     // Set up signal handler
     signal(SIGINT, handle_signal);
@@ -151,6 +160,10 @@ int main()
         }
         case QUERY_TYPE:
         {
+            if (ip_address.s_addr != ip_hdr->daddr)
+            {
+                continue;
+            }
             further = 1;
             printf("\nReceived packet from %s\n", inet_ntoa(client_addr.sin_addr));
             printf("Received QUERY message\n");
@@ -195,7 +208,7 @@ int main()
             continue;
 
         ip_hdr->daddr = ip_hdr->saddr;
-        ip_hdr->saddr = get_local_ip();
+        ip_hdr->saddr = ip_address.s_addr;
         ip_hdr->tot_len = htons(sizeof(struct iphdr) + sizeof(struct cldp_header) + strlen(metadata_value));
         ip_hdr->id = htons(rand() % 65535);
         ip_hdr->check = calculate_checksum((void *)ip_hdr, sizeof(struct iphdr));
@@ -203,6 +216,10 @@ int main()
         // Set up CLDP Header
         cldp_hdr->msg_type = RESPONSE_TYPE;
         cldp_hdr->payload_length = strlen(metadata_value);
+        if (transaction_id == 0)
+        {
+            transaction_id = cldp_hdr->transaction_id;
+        }
 
         memcpy(buffer, ip_hdr, sizeof(struct iphdr));
         memcpy(buffer + sizeof(struct iphdr), cldp_hdr, sizeof(struct cldp_header));
@@ -213,7 +230,6 @@ int main()
 
         // Send the packet
         sendto(sockfd, buffer, ntohs(ip_hdr->tot_len), 0, (struct sockaddr *)&client_addr, client_len);
-        start = time(NULL);
         printf("Sent RESPONSE message\n\n");
         free(metadata_value);
     }
@@ -289,14 +305,17 @@ void send_hello(int sockfd)
     ip_header->frag_off = 0;
     ip_header->ttl = 64;
     ip_header->protocol = CLDP_PROTOCOL;
-    ip_header->saddr = get_local_ip();
+    ip_header->saddr = ip_address.s_addr;
     ip_header->daddr = inet_addr("255.255.255.255");
     ip_header->check = calculate_checksum((void *)ip_header, sizeof(struct iphdr));
 
     // Fill CLDP Header
     cldp_hdr->msg_type = HELLO_TYPE;
     cldp_hdr->payload_length = 0;
-    cldp_hdr->transaction_id = htons(rand() % 65535);
+    if (transaction_id != 0)
+        cldp_hdr->transaction_id = transaction_id;
+    else
+        cldp_hdr->transaction_id = htons(rand() % 65535);
     cldp_hdr->reserved = 0;
 
     // Send the packet
@@ -308,35 +327,6 @@ void send_hello(int sockfd)
     {
         printf("Sent HELLO message\n");
     }
-}
-
-in_addr_t get_local_ip()
-{
-    struct ifaddrs *ifaddr, *ifa;
-    in_addr_t ip = htonl(INADDR_LOOPBACK);
-
-    if (getifaddrs(&ifaddr) == -1)
-    {
-        perror("getifaddrs failed");
-        return ip;
-    }
-
-    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
-    {
-        if (ifa->ifa_addr == NULL)
-            continue;
-
-        if (ifa->ifa_addr->sa_family == AF_INET &&
-            strcmp(ifa->ifa_name, "lo") != 0)
-        {
-            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
-            ip = addr->sin_addr.s_addr;
-            break;
-        }
-    }
-
-    freeifaddrs(ifaddr);
-    return ip;
 }
 
 unsigned short calculate_checksum(void *b, int len)

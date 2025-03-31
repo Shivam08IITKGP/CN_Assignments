@@ -62,6 +62,7 @@ struct node
 int running;
 int sock_fd;
 struct node *head = NULL;
+struct in_addr ip_address;
 
 /* Signal handler for graceful shutdown */
 void handle_signal(int sig);
@@ -76,8 +77,6 @@ void process_response(char *buffer, int bytes_received);
 
 void discover_servers();
 
-in_addr_t get_local_ip();
-
 int main(int argc, char *argv[])
 {
     running = 1;
@@ -90,6 +89,16 @@ int main(int argc, char *argv[])
         print_usage(argv[0]);
         exit(EXIT_FAILURE);
     }
+
+    printf("Enter an IP address for this client (no ports) = ");
+    fflush(stdout);
+
+    char ip[INET_ADDRSTRLEN];
+    if (fgets(ip, sizeof(ip), stdin))
+    {
+        ip[strcspn(ip, "\n")] = 0; // Remove trailing newline
+    }
+    inet_pton(AF_INET, ip, &ip_address);
 
     /* Set up signal handler */
     signal(SIGINT, handle_signal);
@@ -237,7 +246,9 @@ void send_query(int sock, uint8_t metadata_type)
     while (travel != NULL)
     {
         struct sockaddr_in dest_addr;
+
         dest_addr.sin_addr.s_addr = travel->dest_addr.sin_addr.s_addr;
+        dest_addr.sin_port = 0;
         dest_addr.sin_family = AF_INET;
 
         char buffer[29];
@@ -254,7 +265,7 @@ void send_query(int sock, uint8_t metadata_type)
         ip_header->ttl = 64;
         ip_header->protocol = CLDP_PROTOCOL;
         ip_header->daddr = dest_addr.sin_addr.s_addr;
-        ip_header->saddr = get_local_ip();
+        ip_header->saddr = ip_address.s_addr;
         ip_header->check = calculate_checksum((void *)ip_header, sizeof(struct iphdr));
 
         struct cldp_header *cldp_hdr = (struct cldp_header *)(buffer + 20);
@@ -270,6 +281,7 @@ void send_query(int sock, uint8_t metadata_type)
 
         buffer[20 + 8] = metadata_type;
 
+        printf("Sending query to %s\n", inet_ntoa(dest_addr.sin_addr));
         sendto(sock, buffer, 20 + 8 + 1, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
         travel = travel->next;
     }
@@ -293,6 +305,10 @@ void process_response(char *buffer, int bytes_received)
     // extract IP header
     struct iphdr *ip_hdr = (struct iphdr *)buffer;
 
+    if (ip_hdr->daddr != ip_address.s_addr)
+    {
+        return;
+    }
     // check protocol and checksum
     if (ip_hdr->protocol != CLDP_PROTOCOL)
     {
@@ -333,9 +349,16 @@ void process_response(char *buffer, int bytes_received)
 
         travel = travel->next;
     }
-    if (!found || travel->tid != tid)
+    if (ip_address.s_addr == ip_hdr->saddr)
     {
-        printf("Server address not found: %s\n", inet_ntoa(response_ip));
+        return;
+    }
+    if (!found)
+    {
+        struct in_addr src_ip;
+        src_ip.s_addr = ip_hdr->saddr;
+        printf("Server address not found: %s\n", inet_ntoa(src_ip));
+        fflush(stdout);
         return;
     }
 
@@ -350,6 +373,8 @@ void process_response(char *buffer, int bytes_received)
 
         printf("\nReceived response from %s\n", inet_ntoa(response_ip));
         printf("Metadata: %s\n", metadata_value);
+        fflush(stdout);
+
         break;
     }
     }
@@ -378,6 +403,8 @@ void discover_servers()
         if (elapsed.tv_sec >= discovery_timeout)
         {
             printf("Discovery timeout reached\n");
+            fflush(stdout);
+
             break;
         }
 
@@ -398,6 +425,8 @@ void discover_servers()
         if (activity == 0)
         {
             printf("Discovery complete\n");
+            fflush(stdout);
+
             break;
         }
 
@@ -414,6 +443,8 @@ void discover_servers()
         if (bytes_received < (ssize_t)(sizeof(struct iphdr) + sizeof(struct cldp_header)))
         {
             fprintf(stderr, "Received undersized packet (%zd bytes)\n", bytes_received);
+            fflush(stdout);
+
             continue;
         }
 
@@ -432,6 +463,7 @@ void discover_servers()
         actual_src.s_addr = ip_header->saddr;
 
         printf("Discovered server: %s\n", inet_ntoa(actual_src)); // Fixed logging
+        fflush(stdout);
 
         // Check for existing entries using correct IP comparison
         struct node *current = head;
@@ -463,38 +495,7 @@ void discover_servers()
             new_node->next = head;
             head = new_node;
 
-            printf("New server registered: %s:%d\n",
-                   inet_ntoa(new_node->dest_addr.sin_addr),
-                   ntohs(new_node->dest_addr.sin_port));
+            printf("New server registered: %s:%d\n", inet_ntoa(new_node->dest_addr.sin_addr), ntohs(new_node->dest_addr.sin_port));
         }
     }
-}
-
-in_addr_t get_local_ip()
-{
-    struct ifaddrs *ifaddr, *ifa;
-    in_addr_t ip = htonl(INADDR_LOOPBACK);
-
-    if (getifaddrs(&ifaddr) == -1)
-    {
-        perror("getifaddrs failed");
-        return ip;
-    }
-
-    for (ifa = ifaddr; ifa != NULL; ifa = ifa->ifa_next)
-    {
-        if (ifa->ifa_addr == NULL)
-            continue;
-
-        if (ifa->ifa_addr->sa_family == AF_INET &&
-            strcmp(ifa->ifa_name, "lo") != 0)
-        {
-            struct sockaddr_in *addr = (struct sockaddr_in *)ifa->ifa_addr;
-            ip = addr->sin_addr.s_addr;
-            break;
-        }
-    }
-
-    freeifaddrs(ifaddr);
-    return ip;
 }
